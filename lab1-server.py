@@ -28,12 +28,23 @@ class MyServer(socketserver.BaseRequestHandler):
         socket = self.request[1]
         print("{} wrote:".format(self.client_address[0]))
         print(data)
-        msg = data[12:]
-        data = data[0:12]
-        unpacked_data = struct.unpack("iihh", data)
-        udp_packet = struct.pack("iihh", len(msg), 0, STEP, CONFIG_STUID)
+        self.helper(data)
         msg = data.decode('utf-8')
         socket.sendto(udp_packet, self.client_address)
+		# since we made sure eveyrhting is valid start new thread
+		# create new random stuff
+		psecret = random.randint(0, 100)
+		num = random.randint(0,100)
+		len = random.randint(0, 100)
+		# new UDP port each time no repeats
+		udp_port = random.randint(00000, 41200)
+
+		
+	def helper(self, data):
+		msg = data[12:]
+        data = data[0:12]
+        unpacked_data = struct.unpack("iihh", data)
+        udp_packet = struct.pack("iihh", len(msg), 0, STEP, CONFIG_STUID) 
 
     if __name__ == "__main__":
         s_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # UDP socket object
