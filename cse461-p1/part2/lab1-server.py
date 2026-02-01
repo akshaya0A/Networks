@@ -3,13 +3,14 @@ import socketserver
 import threading
 import random
 import struct
+import time
 
 CONFIG_STUID = 811
 STEP = 2
-psecret = random.randint(0, 100)
-num = random.randint(0, 100)
-len_val = random.randint(0, 100)
-udp_port = random.randint(00000, 41200)
+#psecret = random.randint(0, 100)
+#num = random.randint(0, 100)
+#len_val = random.randint(0, 100)
+#udp_port = random.randint(00000, 41200)
 PORT = 41201
 HOST = "attu2.cs.washington.edu"
 _,client_addr = s_udp.recvfrom(PORT)	        #receive data from client
@@ -23,9 +24,15 @@ class MyServer(socketserver.BaseRequestHandler):
     client.
     """
     
+    def valid_port(self):
+        temp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        temp.bind(("", 0))
+        port = temp.getsockname()[1]
+        temp.close()
+        return port
     def handle(self):
         data= self.request[0].strip()
-        socket = self.request[1]
+        udp_socket = self.request[1]
         client_addr = self.client_address
         print("{} wrote:".format(self.client_address[0]))
         print(data)
@@ -41,96 +48,64 @@ class MyServer(socketserver.BaseRequestHandler):
             print("invalid")
             return
     
-        # random reponses
+        # random reponses for stage A
         num = random.randint(1, 100)
         len_val = random.randint(1, 100)
-        secret_a = random.randint(0, 100)
-        udp_port = random.randint(20000,40000)
+        secretA = random.randint(0, 100)
+        udp_port = self.valid_port()
 
-
-        # pack the reponse payload
-        payload_a2 = struct.pack("iiii", num, len_val, udp_port, secret_a)
-        # pack the reposne header
+        # Pack stage A 
+        payload_a2 = struct.pack("iiii", num, len_val, udp_port, secretA)
         header_a2 = struct.pack("iihh", len(payload_a2), 0, 2, student_id)
         print(payload_a2)
         print(header_a2)
-        # send packet
-        udp_socket = self.request[1]
         udp_socket.sendto(header_a2 + payload_a2, client_addr)
         
         # stage B
         stageb_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         stageb_socket.bind(("", udp_port))
+        stageb_socket.settimeout(5)
         id_num = struct.unpack("i", payload[:4])[0]
-        expected_id = 0
-        while expected_id < num:
-            data, client_addr = stageb_socket.recvfrom(udp_port)
-            header = data[:12]
-            payload = data[12:]
-            payload_len, psecret, step, student_id  = struct.unpack("iihh", header)
-            if psecret != secretA or step != 1:
-                return 
-            if payload_len != 4 + len_val:
-                return
-            # get the packed id
-            if id_num != expected_id:
-                continue 
-            expected_id +=1
-        secret_b = random.randint(1,100)
-        payload_b = struct.pack("i", secret_b)
-        header_b = struct.pack("iihh", len(payload_b), secret_a, 2, student_id)
+        packet_id_want = 0
+        while packet_id_want < num:
+            try:
+                data, client_addr = stageb_socket.recvfrom(udp_port)
+                header = data[:12]
+                payload = data[12:]
+                payload_len, psecret, step, student_id  = struct.unpack("iihh", header)
+                if psecret != secretA or step != 1:
+                    continue 
+                if payload_len != 4 + len_val:
+                    continue
+                # get the packed id
+                if id_num != packet_id_want:
+                    continue 
+                # we recieved the packet and send confirmation of recieving
+                packet_id_want +=1
+                sent_payload = struct.pack("i", id_num)
+                sent_header = struct.pack("iihh", len(sent_header), secretA, 2, student_id)
+                stageb_socket.sendto(sent_header+sent_payload, client_addr)
+            except socket.timeout:
+                continue
+        # all packets sent 
+        tcp_port = self.valid_port()
+        secretB = random.randint(1, 1000)
+        new_payload = struct.pack("ii", tcp_port, secretB)
+        final_header = struct.pack("iihh", len(new_payload), secretA, 2, student_id)
+        # send back the final new info 
+        stageb_socket.sendto(final_header + new_payload, client_addr)
+        return num, len_val, udp_port, secretA, tcp_port, secretB
         #udp_packet = struct.pack("iihh", len(msg), 0, STEP, CONFIG_STUID)
         #msg = data.decode('utf-8')
         #socket.sendto(udp_packet, self.client_address)
 		
-    def parsed(self, data):
-        payload = data[12:]
-        header = data[0:12]
-        payload_len, psecret, step, student_id  = struct.unpack("iihh", header)
-        return msg, payload_len, psecret, step, student_id
 
-    def helper(self):
-        dropped = False
-        while expected_id < num:
-            data, client_addr = stageb_socket.recvfrom(udp_port)
-            header = data[:12]
-            payload = data[12:]
-            payload_len, psecret, step, student_id  = struct.unpack("iihh", header)
-            if psecret != secretA or step != 1:
-                return 
-            if payload_len != 4 + len_val:
-                return
-            # get the packed id
-            if packed_id != expected_id:
-                continue 
-    def valid_port(self):
-         temp= socket.socket()
-         # tells os to bind to unesd port
-         temp.bind(("", 0))
-         port = temp.getsockname()[1]
-         temp.close()
-         return port
+
 
     if __name__ == "__main__":
-        s_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # UDP socket object
-        ret = socket.getaddrinfo(HOST, PORT)
-        print(ret[0])
-        s_udp.bind(ret[0][4])
-        #s_udp.listen()
         with socketserver.UDPServer((HOST, PORT), MyServer) as server:
+            print(f"UDP Server listening on {HOST}:{PORT}")
             server.serve_forever()
-            while True:
-                # Start a thread with the server -- that thread will then start one
-                # more thread for each request
-                server_thread = threading.Thread(target=handle_client, args=(None, None, server_socket))
-                # Exit the server thread when the main thread terminates
-                server_thread.daemon = True
-                server_thread.start()
-                print("Server loop running in thread:", server_thread.name)
-            
-
-
-
 """
 
     # Create the server
@@ -191,7 +166,26 @@ if __name__ == "__main__":
         server.shutdown()
 
 
+    def parsed(self, data):
+        payload = data[12:]
+        header = data[0:12]
+        payload_len, psecret, step, student_id  = struct.unpack("iihh", header)
+        return msg, payload_len, psecret, step, student_id
 
+    def helper(self):
+        dropped = False
+        while packet_id_want < num:
+            data, client_addr = stageb_socket.recvfrom(udp_port)
+            header = data[:12]
+            payload = data[12:]
+            payload_len, psecret, step, student_id  = struct.unpack("iihh", header)
+            if psecret != secretA or step != 1:
+                return 
+            if payload_len != 4 + len_val:
+                return
+            # get the packed id
+            if packed_id != packet_id_want:
+                continue 
 
 
 
