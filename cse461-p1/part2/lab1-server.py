@@ -12,7 +12,7 @@ len_val = random.randint(0, 100)
 udp_port = random.randint(00000, 41200)
 PORT = 41201
 HOST = "attu2.cs.washington.edu"
-_,addr = s_udp.recvfrom(PORT)	        #receive data from client
+_,client_addr = s_udp.recvfrom(PORT)	        #receive data from client
 
 class MyServer(socketserver.BaseRequestHandler):
     """
@@ -26,29 +26,59 @@ class MyServer(socketserver.BaseRequestHandler):
     def handle(self):
         data= self.request[0].strip()
         socket = self.request[1]
-
+        client_addr = self.client_address
         print("{} wrote:".format(self.client_address[0]))
         print(data)
         # parse the mesage and payload
         payload = data[12:]
         header = data[:12]
         payload_len, psecret, step, student_id = struct.unpack("iihh", header)
+        print(payload_len)
+        print(psecret)
+        print(step)
+        print(student_id)
         if payload != b"hello world\x00":
+            print("invalid")
             return
     
         # random reponses
         num = random.randint(1, 100)
         len_val = random.randint(1, 100)
         secret_a = random.randint(0, 100)
+        udp_port = random.randint(20000,40000)
+
+
         # pack the reponse payload
         payload_a2 = struct.pack("iiii", num, len_val, udp_port, secret_a)
         # pack the reposne header
         header_a2 = struct.pack("iihh", len(payload_a2), 0, 2, student_id)
-
+        print(payload_a2)
+        print(header_a2)
         # send packet
         udp_socket = self.request[1]
-        udp_socket.sendto(header_a2 + payload_a2, addr)
-
+        udp_socket.sendto(header_a2 + payload_a2, client_addr)
+        
+        # stage B
+        stageb_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        stageb_socket.bind(("", udp_port))
+        id_num = struct.unpack("i", payload[:4])[0]
+        expected_id = 0
+        while expected_id < num:
+            data, client_addr = stageb_socket.recvfrom(udp_port)
+            header = data[:12]
+            payload = data[12:]
+            payload_len, psecret, step, student_id  = struct.unpack("iihh", header)
+            if psecret != secretA or step != 1:
+                return 
+            if payload_len != 4 + len_val:
+                return
+            # get the packed id
+            if id_num != expected_id:
+                continue 
+            expected_id +=1
+        secret_b = random.randint(1,100)
+        payload_b = struct.pack("i", secret_b)
+        header_b = struct.pack("iihh", len(payload_b), secret_a, 2, student_id)
         #udp_packet = struct.pack("iihh", len(msg), 0, STEP, CONFIG_STUID)
         #msg = data.decode('utf-8')
         #socket.sendto(udp_packet, self.client_address)
@@ -60,10 +90,9 @@ class MyServer(socketserver.BaseRequestHandler):
         return msg, payload_len, psecret, step, student_id
 
     def helper(self):
-        expected_id = 0
         dropped = False
         while expected_id < num:
-            data, addr = stageb_socket.recvfrom(udp_port)
+            data, client_addr = stageb_socket.recvfrom(udp_port)
             header = data[:12]
             payload = data[12:]
             payload_len, psecret, step, student_id  = struct.unpack("iihh", header)

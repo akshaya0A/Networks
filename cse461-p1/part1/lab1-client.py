@@ -10,6 +10,7 @@ CONFIG_STUID = 811
 STEP = 1
 SERVER_ADDR: str = "attu2.cs.washington.edu"
 #SERVER_ADDR: str = "attu3.cs.washington.edu"
+PORT = 41201
 HOST: str = socket.gethostbyname(SERVER_ADDR)
 # packet_data = struct.pack("iihh", payload_len, psecret, STEP, CONFIG_STUID)
 
@@ -43,12 +44,14 @@ def setup_udp(self, port, msg):
     print("num = ", num)
     print("len: ", data_len)
     print("port = ", udp_port)
+    zero_arr = np.zeros(len)
     packet = struct.pack("iihh", len(msg), 0, STEP, CONFIG_STUID)
-    for j in range(0, num):
+    #for j in range(0, num):
+        
 
         
-if __name__ == "__main__":
-    setup_udp(41201, b"hello world\0")
+    if __name__ == "__main__":
+        setup_udp(41201, b"hello world\0")
 
 
 # tcp 
