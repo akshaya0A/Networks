@@ -93,7 +93,8 @@ class MyServer(socketserver.BaseRequestHandler):
         new_payload = struct.pack("ii", tcp_port, secretB)
         final_header = struct.pack("iihh", len(new_payload), secretA, 2, student_id)
         # send back the final new info 
-        stageb_socket.sendto(final_header + new_payload, client_addr)
+        new_packet = final_header + new_payload,
+        stageb_socket.sendto(new_packet, client_addr)
         return num, len_val, udp_port, secretA, tcp_port, secretB
         #udp_packet = struct.pack("iihh", len(msg), 0, STEP, CONFIG_STUID)
         #msg = data.decode('utf-8')
