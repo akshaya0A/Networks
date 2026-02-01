@@ -2,6 +2,7 @@ import socket
 import struct
 import time
 import errno
+import numpy as np
 
 import sys
 
@@ -42,6 +43,9 @@ def setup_udp(self, port, msg):
     print("num = ", num)
     print("len: ", data_len)
     print("port = ", udp_port)
+    packet = struct.pack("iihh", len(msg), 0, STEP, CONFIG_STUID)
+    for j in range(0, num):
+
         
 if __name__ == "__main__":
     setup_udp(41201, b"hello world\0")
