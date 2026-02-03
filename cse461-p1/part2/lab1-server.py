@@ -4,6 +4,7 @@ import threading
 import random
 import struct
 import time
+import sys
 
 CONFIG_STUID = 811
 STEP = 2
@@ -11,9 +12,11 @@ STEP = 2
 #num = random.randint(0, 100)
 #len_val = random.randint(0, 100)
 #udp_port = random.randint(00000, 41200)
-PORT = 41201
-HOST = "attu2.cs.washington.edu"
-_,client_addr = s_udp.recvfrom(PORT)	        #receive data from client
+PORT = int(sys.argv[2])
+HOST = sys.argv[1]
+HEADER_SIZE = struct.calcsize("!iihh")
+BUF_SIZE = 1024
+# _,client_addr = s_udp.recvfrom(PORT)	        #receive data from client
 
 class MyServer(socketserver.BaseRequestHandler):
     """
@@ -30,16 +33,19 @@ class MyServer(socketserver.BaseRequestHandler):
         port = temp.getsockname()[1]
         temp.close()
         return port
+
+
     def handle(self):
-        data= self.request[0].strip()
+        data= self.request[0]
         udp_socket = self.request[1]
         client_addr = self.client_address
         print("{} wrote:".format(self.client_address[0]))
         print(data)
         # parse the mesage and payload
-        payload = data[12:]
-        header = data[:12]
-        payload_len, psecret, step, student_id = struct.unpack("iihh", header)
+        payload = data[HEADER_SIZE:]
+        print(payload)
+        header = data[:HEADER_SIZE]
+        payload_len, psecret, step, student_id = struct.unpack("!iihh", header)
         print(payload_len)
         print(psecret)
         print(step)
@@ -49,49 +55,60 @@ class MyServer(socketserver.BaseRequestHandler):
             return
     
         # random reponses for stage A
-        num = random.randint(1, 100)
-        len_val = random.randint(1, 100)
+        num = random.randint(1, 10)
+        len_val = random.randint(1, 33)
         secretA = random.randint(0, 100)
         udp_port = self.valid_port()
 
         # Pack stage A 
-        payload_a2 = struct.pack("iiii", num, len_val, udp_port, secretA)
-        header_a2 = struct.pack("iihh", len(payload_a2), 0, 2, student_id)
-        print(payload_a2)
-        print(header_a2)
+        payload_a2 = struct.pack("!iiii", num, len_val, udp_port, secretA)
+        header_a2 = struct.pack("!iihh", len(payload_a2), 0, 2, student_id)
+        # print(payload_a2)
+        # print(header_a2)
         udp_socket.sendto(header_a2 + payload_a2, client_addr)
         
         # stage B
+        print("to post", udp_port)
         stageb_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         stageb_socket.bind(("", udp_port))
         stageb_socket.settimeout(5)
-        id_num = struct.unpack("i", payload[:4])[0]
+        struct_layout = f"!iihhi{len_val+4}x"
+        # id_num = struct.unpack("!i", payload[:4])[0]
         packet_id_want = 0
         while packet_id_want < num:
             try:
-                data, client_addr = stageb_socket.recvfrom(udp_port)
-                header = data[:12]
-                payload = data[12:]
-                payload_len, psecret, step, student_id  = struct.unpack("iihh", header)
+                data, client_addr = stageb_socket.recvfrom(BUF_SIZE)
+                #header = data[:HEADER_SIZE]
+                #payload = data[HEADER_SIZE:]
+                id_num = int.from_bytes(payload[:4], "big")
+                print("id_num:" + str(id_num) + ", packet_id_want:" + str(packet_id_want))
+                payload_len, psecret, step, student_id, id_num  = struct.unpack(struct_layout, data)
                 if psecret != secretA or step != 1:
+                    print('here1')
                     continue 
                 if payload_len != 4 + len_val:
+                    print('here2')
                     continue
                 # get the packed id
                 if id_num != packet_id_want:
+                    print('here3')
                     continue 
                 # we recieved the packet and send confirmation of recieving
                 packet_id_want +=1
-                sent_payload = struct.pack("i", id_num)
-                sent_header = struct.pack("iihh", len(sent_header), secretA, 2, student_id)
-                stageb_socket.sendto(sent_header+sent_payload, client_addr)
+                sent_payload = struct.pack("!i", id_num)
+                sent_header = struct.pack("!iihh", len(sent_payload), secretA, 2, student_id)
+                stageb_socket.sendto(sent_header + sent_payload, client_addr)
+
             except socket.timeout:
+                print("server out")
                 continue
+
+        """        
         # all packets sent 
         tcp_port = self.valid_port()
         secretB = random.randint(1, 1000)
-        new_payload = struct.pack("ii", tcp_port, secretB)
-        final_header = struct.pack("iihh", len(new_payload), secretA, 2, student_id)
+        new_payload = struct.pack("!ii", tcp_port, secretB)
+        final_header = struct.pack("!iihh", len(new_payload), secretA, 2, student_id)
         # send back the final new info 
         new_packet = final_header + new_payload,
         stageb_socket.sendto(new_packet, client_addr)
@@ -99,14 +116,20 @@ class MyServer(socketserver.BaseRequestHandler):
         #udp_packet = struct.pack("iihh", len(msg), 0, STEP, CONFIG_STUID)
         #msg = data.decode('utf-8')
         #socket.sendto(udp_packet, self.client_address)
+        """
+        print("success!")
+        sys.exit(0)
+
 		
 
+if __name__ == "__main__":
+    with socketserver.UDPServer((HOST, PORT), MyServer) as server:
+        print(f"UDP Server listening on {HOST}:{PORT}")
+        #server.serve_forever()
+        return
 
 
-    if __name__ == "__main__":
-        with socketserver.UDPServer((HOST, PORT), MyServer) as server:
-            print(f"UDP Server listening on {HOST}:{PORT}")
-            server.serve_forever()
+            
 """
 
     # Create the server
