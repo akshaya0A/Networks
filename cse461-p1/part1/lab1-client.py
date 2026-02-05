@@ -52,32 +52,43 @@ def stage_a():
 
 def stage_b(num, lenA, udp_port, secretA, sock):
     stage_b_socket = sock
-    stage_b_socket.settimeout(3)
+    stage_b_socket.settimeout(10)
     # need to change addr?? 
 
     #udp uses packets
     packets = []
     # sent = [False] * num
     print("endter b")
-    struct_layout = f"!iihhi{lenA+4}x"
-    for i in range(num):
-        payload = struct.pack(struct_layout, lenA+4, secretA, 1, CONFIG_STUID, i)
-        packets.append(payload)
+    len_align = lenA
+    while(len_align% 4 != 0):
+        len_align+=1
+    struct_layout = f"!i{len_align}x"
+    #make 0s - enA bytes; other 4 bytes = number of id
+    payload = bytes(len_align)
+    print("payllad bytes", len(payload))
+    #UNIVERSAL HEADE FOR THIS
+    header = struct.pack("!iihh", len_align+4, secretA, STEP, CONFIG_STUID)
+    #id:
 
     num_sent = 0
     
     while num_sent < num:
-        print("send + ", num_sent)
-        stage_b_socket.sendto(packets[num_sent], (SERVER_ADDR, udp_port))
-        print("sendndndnndnnd", packets[num_sent])
+        packet_id = struct.pack(struct_layout, num_sent)
+        print("send packet ", num_sent)
+        print("header len", len(header))
+        print("id_bytes = ", len(packet_id))
+        msg = header + packet_id
+        print("message = ", msg.hex())
+        print("total msg len", len(msg))
+        print(udp_port)
+        stage_b_socket.sendto(msg, (SERVER_ADDR, udp_port))
         try:
             data, client_addr = stage_b_socket.recvfrom(BUF_SIZE)
             acked_packet_id = struct.unpack("!i", data[12:])
             print("acked_packet_id:" + str(acked_packet_id[0]) + "num_sent" + str(num_sent))
             num_sent += 1
         except socket.timeout:
-            print("fail")
-            return 1,1
+            return 1, 1
 
     print("success!")
     
@@ -93,7 +104,6 @@ def stage_b(num, lenA, udp_port, secretA, sock):
 
 if __name__ == "__main__":
     num, lenA, udp_port, secretA, sock = stage_a()
-    print("oh no")
     tcp_port, secretB = stage_b(num, lenA, udp_port, secretA, sock)
 
 

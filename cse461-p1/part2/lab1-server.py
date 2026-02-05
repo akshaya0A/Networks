@@ -6,7 +6,6 @@ import struct
 import time
 import sys
 
-CONFIG_STUID = 811
 STEP = 2
 #psecret = random.randint(0, 100)
 #num = random.randint(0, 100)
@@ -50,7 +49,8 @@ class MyServer(socketserver.BaseRequestHandler):
         print(psecret)
         print(step)
         print(student_id)
-        if payload != b"hello world\x00":
+        STUID = student_id
+        if payload != b"hello world\x00" or step != 1 or psecret != 0 or payload_len != len(payload):
             print("invalid")
             return
     
@@ -73,26 +73,32 @@ class MyServer(socketserver.BaseRequestHandler):
         stageb_socket.bind(("", udp_port))
         stageb_socket.settimeout(5)
         struct_layout = f"!iihhi{len_val+4}x"
+        len_align = len_val
+        while (len_align % 4 != 0):
+            len_align+=1
         # id_num = struct.unpack("!i", payload[:4])[0]
         packet_id_want = 0
         while packet_id_want < num:
             try:
                 data, client_addr = stageb_socket.recvfrom(BUF_SIZE)
-                #header = data[:HEADER_SIZE]
-                #payload = data[HEADER_SIZE:]
+                header = data[:HEADER_SIZE]
+                payload = data[HEADER_SIZE:]
                 id_num = int.from_bytes(payload[:4], "big")
                 print("id_num:" + str(id_num) + ", packet_id_want:" + str(packet_id_want))
-                payload_len, psecret, step, student_id, id_num  = struct.unpack(struct_layout, data)
-                if psecret != secretA or step != 1:
-                    print('here1')
-                    continue 
-                if payload_len != 4 + len_val:
-                    print('here2')
-                    continue
+                payload_len, psecret, step, student_id  = struct.unpack("!iihh", header)
+                if psecret != secretA or step != 1 or student_id != STUID:
+                    stageb_socket.close()
+                    return 1, 1
+                if payload_len != 4 + len_align:
+                    stageb_socket.close()
+                    return 1,1
+                if payload_len % 4 != 0:
+                    stageb_socket.close()
+                    return 1, 1
                 # get the packed id
                 if id_num != packet_id_want:
-                    print('here3')
-                    continue 
+                    stageb_socket.close()
+                    return 1, 1
                 # we recieved the packet and send confirmation of recieving
                 packet_id_want +=1
                 sent_payload = struct.pack("!i", id_num)
@@ -100,8 +106,7 @@ class MyServer(socketserver.BaseRequestHandler):
                 stageb_socket.sendto(sent_header + sent_payload, client_addr)
 
             except socket.timeout:
-                print("server out")
-                continue
+                stage_b_socket.close()
 
         """        
         # all packets sent 
@@ -118,15 +123,14 @@ class MyServer(socketserver.BaseRequestHandler):
         #socket.sendto(udp_packet, self.client_address)
         """
         print("success!")
-        sys.exit(0)
+        #sys.exit(0)
 
 		
 
 if __name__ == "__main__":
     with socketserver.UDPServer((HOST, PORT), MyServer) as server:
         print(f"UDP Server listening on {HOST}:{PORT}")
-        #server.serve_forever()
-        return
+        server.serve_forever()
 
 
             
