@@ -96,21 +96,17 @@ class MyServer(socketserver.BaseRequestHandler):
                 payload_len, psecret, step, student_id = struct.unpack("!iihh", header)
                 # validate header
                 if psecret != secretA or step != 1 or student_id != stuid:
-                    stageb_socket.close()
-                    return
+                    continue
                 # Payload length needs to be 4 + len_val
                 if payload_len != 4 + len_val:
-                    stageb_socket.close()
-                    return
+                    continue
                 # packet id
                 packet_id = struct.unpack("!i", payload[:4])[0]
                 if packet_id != packet_id_want:
-                    stageb_socket.close()
-                    return
+                    continue
                 # zero padding
                 if payload[4:4+len_val] != b"\x00" * len_val:
-                    stageb_socket.close()
-                    return
+                    continue
                 # ack
                 ack_payload = struct.pack("!i", packet_id)
                 ack_header = struct.pack("!iihh", len(ack_payload), secretA, 2, student_id)
@@ -128,7 +124,7 @@ class MyServer(socketserver.BaseRequestHandler):
         new_packet = final_header + new_payload
         stageb_socket.sendto(new_packet, client_addr)
         stageb_socket.close()
-        self.handle_stage_c(tcp_port, secretB, student_id)
+        threading.Thread(target=self.handle_stage_c, args=(tcp_port, secretB, student_id), daemon=True).start()
 
 
     def handle_stage_c(self, tcp_port, secretB, student_id):
@@ -170,7 +166,6 @@ class MyServer(socketserver.BaseRequestHandler):
         print("Stage D")
         connection.close()
         sock.close()
-        self.server.shutdown()
         return
 		
 

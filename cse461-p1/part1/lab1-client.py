@@ -140,7 +140,7 @@ def stage_d(num2, len2, secretC, c, sock):
     print("Stage D")
 
     payload = c * len2
-    padding_needed = len2 % 4
+    padding_needed = (4 - (len2 % 4)) % 4
     payload += b'\x00' * padding_needed
 
     for i in range(num2):
