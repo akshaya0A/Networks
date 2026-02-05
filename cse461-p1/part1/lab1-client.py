@@ -12,6 +12,7 @@ SERVER_ADDR: str = sys.argv[1]
 PORT = int(sys.argv[2])
 HOST = socket.gethostbyname(SERVER_ADDR)
 BUF_SIZE = 1024
+HEADER_SIZE = 12
 # packet_data = struct.pack("iihh", payload_len, psecret, STEP, CONFIG_STUID)
 
 def stage_a():
@@ -35,9 +36,9 @@ def stage_a():
             return None
         payload_len, psecret, step, student_id = struct.unpack("!iihh", data[:12])
         # fix syntax
-        if not(payload_len, psecret, step, student_id):
-                sock.close()
-                return None
+        if step != 2 or student_id != CONFIG_STUID:
+            sock.close()
+            return None
         num, len_val, udp_port, secretA = struct.unpack("!iiii", data[12:28])
         print(f"num: {num}")
         print(f"len: {len_val}")
@@ -49,57 +50,108 @@ def stage_a():
         sock.close()
         return None
 
-
 def stage_b(num, lenA, udp_port, secretA, sock):
-    stage_b_socket = sock
-    stage_b_socket.settimeout(5)
-    # need to change addr?? 
+    sock.settimeout(2)
 
-    #udp uses packets
-    packets = []
-    # sent = [False] * num
-    for i in range(num):
-        payload = struct.pack("!i", i)
-        payload += b'\x00' * lenA
-        header = struct.pack("!iihh", len(payload), secretA, 1, CONFIG_STUID)
-        packets.append(header + payload)
+    len_align = lenA
+    while (len_align % 4 != 0):
+        len_align+=1
 
-    num_sent = 0
-    
-    while num_sent < num:
-        stage_b_socket.sendto(packets[num_sent], (SERVER_ADDR, udp_port))
+    for packet_id in range(num):
+        # Build payload
+        payload = struct.pack("!i", packet_id) + b"\x00" * len_align
+
+        retries = 0
+
+        # Build header (payload_len MUST be 4 + lenA)
+        header = struct.pack("!iihh", 4 + lenA, secretA, 1, CONFIG_STUID)
+        packet = header + payload
+        while retries < 10:
+            sock.sendto(packet, (HOST, udp_port))
+            try:
+                data, _ = sock.recvfrom(BUF_SIZE)
+                ack_len, ack_secret, ack_step, ack_sid = struct.unpack("!iihh", data[:12])
+                ack_id = struct.unpack("!i", data[12:16])[0]
+                if (ack_len == 4 and ack_secret == secretA and ack_step == 2 and
+                        ack_sid == CONFIG_STUID and ack_id == packet_id):
+                    print(f"ACK received for packet {packet_id}")
+                    break
+            except socket.timeout:
+                retries += 1
+                continue
+    # get the tcp port
+    timeouts = 0
+    while timeouts < 5:
         try:
-            data, client_addr = stage_b_socket.recvfrom(BUF_SIZE)
-            acked_packet_id = struct.unpack("!i", data[12:])
-            print("acked_packet_id:" + str(acked_packet_id[0]) + "num_sent" + str(num_sent))
-            if acked_packet_id[0] == num_sent:
-                num_sent += 1
+            data, client_addr = sock.recvfrom(BUF_SIZE)
+            ack_len, ack_secret, ack_step, ack_sid = struct.unpack("!iihh", data[:12])
+            if ack_secret == secretA and ack_step == 2:
+                tcp_port, secretB = struct.unpack("!ii", data[12:20])
+                print("TCP Port: ", tcp_port)
+                print("B: ", secretB)
+                return tcp_port, secretB
         except socket.timeout:
-            continue
-
-    print("success!")
+            timeouts += 1
     
-    return 0, 0
+    raise RuntimeError("Stage B failed")
 
-    """
-    data, client_addr = stage_b_socket.recvfrom(BUF_SIZE)	
-    tcp_port, secretB = struct.unpack("!ii", data[12:20])
-    print("B:", secretB)
-    return tcp_port, secretB 
-    """       
+def stage_c(tcp_port, secretB):
+    # connect to the socket
+    print("Stage 3 port: ", tcp_port)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(3)
+    
+    try:
+        sock.connect((SERVER_ADDR, tcp_port))
+    except socket.timeout:
+        print("Failed to connect")
+    except ConnectionRefusedError:
+        print("Server didn't accept connection")
+    except OSError as e:
+        print("Socket error: ", e)
+
+    data = b""
+    bytes_wanted = HEADER_SIZE + 16
+    while len(data) < bytes_wanted:
+        try:
+            block = sock.recv(bytes_wanted - len(data))
+        except OSError as e:
+            raise RuntimeError(e)
+        if not block:
+            raise RuntimeError("Connection closed")
         
+        data += block
+
+    # receive the data
+    print(data)
+    payload_len, psecret, step, student_id = struct.unpack("!iihh", data[:12])
+    if psecret != secretB or step != 2 or student_id != CONFIG_STUID:
+        sock.close()
+        return None
+    num2, len2, secretC, c = struct.unpack("!iii4s", data[12:])
+    print(f"num: {num2}")
+    print(f"len: {len2}")
+    print(f"secretC: {secretC}")
+    print(f"c: {c[:1]}")
+    return num2, len2, secretC, c[:1], sock
+
+
+def stage_d(num2, len2, secretC, c, sock):
+    print("Stage D")
+
+    payload = c * len2
+    padding_needed = len2 % 4
+    payload += b'\x00' * padding_needed
+
+    for i in range(num2):
+        header = struct.pack("!iihh", len2, secretC, 1, CONFIG_STUID)
+        sock.sendall(header + payload)
+
+    sock.close()
+
 
 if __name__ == "__main__":
     num, lenA, udp_port, secretA, sock = stage_a()
     tcp_port, secretB = stage_b(num, lenA, udp_port, secretA, sock)
-
-
-# tcp 
-# def setup_tcp():
-#     port = socket.gethostbyname(HOST)
-#     s_tcp = socket.socket()		# TCP socket object
-#     s_tcp.connect((HOST, PORT))
-#     s_tcp.sendall('This will be sent to server')    # Send This message to server
-#     data = s_tcp.recv(1024)	    # Now, receive the echoed
-#     print (data)		# Print received(echoed) data
-#     s_tcp.close()				# close the connection
+    num2, len2, secretC, c, sock = stage_c(tcp_port, secretB)
+    stage_d(num2, len2, secretC, c, sock)
