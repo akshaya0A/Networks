@@ -81,7 +81,7 @@ def stage_b(num, lenA, udp_port, secretA, sock):
                 continue
     print("Stage B complete")
     # get the final response that gives us the tcp port and secretb
-    sock.settimeout(5)  
+    sock.settimeout(3)  
     while True:
         try:
             data, _ = sock.recvfrom(BUF_SIZE)
