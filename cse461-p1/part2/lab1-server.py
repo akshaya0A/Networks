@@ -6,7 +6,6 @@ import struct
 import time
 import sys
 
-CONFIG_STUID = 811
 STEP = 2
 #psecret = random.randint(0, 100)
 #num = random.randint(0, 100)
@@ -14,7 +13,7 @@ STEP = 2
 #udp_port = random.randint(00000, 41200)
 PORT = int(sys.argv[2])
 HOST = sys.argv[1]
-HEADER_SIZE = struct.calcsize("!iihh")
+HEADER_SIZE = 12
 BUF_SIZE = 1024
 # _,client_addr = s_udp.recvfrom(PORT)	        #receive data from client
 
@@ -50,7 +49,8 @@ class MyServer(socketserver.BaseRequestHandler):
         print(psecret)
         print(step)
         print(student_id)
-        if payload != b"hello world\x00":
+        STUID = student_id
+        if payload != b"hello world\x00" or step != 1 or psecret != 0 or payload_len != len(payload):
             print("invalid")
             return
     
@@ -73,35 +73,44 @@ class MyServer(socketserver.BaseRequestHandler):
         stageb_socket.bind(("", udp_port))
         stageb_socket.settimeout(5)
         struct_layout = f"!iihhi{len_val+4}x"
+        len_align = len_val
+        while (len_align % 4 != 0):
+            len_align+=1
         # id_num = struct.unpack("!i", payload[:4])[0]
         packet_id_want = 0
-        while packet_id_want < num:
+        packet_id_want = 0
+
+        max_timeouts = 10
+        timeouts = 0
+        while packet_id_want < num and timeouts < max_timeouts:
             try:
                 data, client_addr = stageb_socket.recvfrom(BUF_SIZE)
-                #header = data[:HEADER_SIZE]
-                #payload = data[HEADER_SIZE:]
-                id_num = int.from_bytes(payload[:4], "big")
-                print("id_num:" + str(id_num) + ", packet_id_want:" + str(packet_id_want))
-                payload_len, psecret, step, student_id, id_num  = struct.unpack(struct_layout, data)
-                if psecret != secretA or step != 1:
-                    print('here1')
-                    continue 
-                if payload_len != 4 + len_val:
-                    print('here2')
+                header = data[:HEADER_SIZE]
+                payload = data[HEADER_SIZE:]
+                payload_len, psecret, step, student_id = struct.unpack("!iihh", header)
+                # validate header
+                if psecret != secretA or step != 1 or student_id != STUID:
                     continue
-                # get the packed id
-                if id_num != packet_id_want:
-                    print('here3')
-                    continue 
-                # we recieved the packet and send confirmation of recieving
-                packet_id_want +=1
-                sent_payload = struct.pack("!i", id_num)
-                sent_header = struct.pack("!iihh", len(sent_payload), secretA, 2, student_id)
-                stageb_socket.sendto(sent_header + sent_payload, client_addr)
-
+                # Payload length needs to be 4 + len_val
+                if payload_len != 4 + len_val:
+                    continue
+                # packet id
+                packet_id = struct.unpack("!i", payload[:4])[0]
+                if packet_id != packet_id_want:
+                    continue
+                # zero padding
+                if payload[4:] != b"\x00" * len_val:
+                    continue
+                # ack
+                ack_payload = struct.pack("!i", packet_id)
+                ack_header = struct.pack("!iihh", len(ack_payload), secretA, 2, student_id)
+                stageb_socket.sendto(ack_header + ack_payload, client_addr)
+                packet_id_want += 1
             except socket.timeout:
-                print("server out")
+                timeouts += 1
                 continue
+        stageb_socket.close()
+        return
 
         """        
         # all packets sent 
@@ -118,15 +127,14 @@ class MyServer(socketserver.BaseRequestHandler):
         #socket.sendto(udp_packet, self.client_address)
         """
         print("success!")
-        sys.exit(0)
+        #sys.exit(0)
 
 		
 
 if __name__ == "__main__":
     with socketserver.UDPServer((HOST, PORT), MyServer) as server:
         print(f"UDP Server listening on {HOST}:{PORT}")
-        #server.serve_forever()
-        return
+        server.serve_forever()
 
 
             

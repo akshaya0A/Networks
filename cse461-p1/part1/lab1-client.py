@@ -26,7 +26,7 @@ def stage_a():
 
     # send to server
     sent = sock.sendto(packet, (HOST, PORT))
-    print(f"Bytes sent: {sent}")
+    print(f"Bytes sent: {sent}")ok
     # get reponse
     try:
         data, server_addr = sock.recvfrom(BUF_SIZE)	
@@ -49,40 +49,28 @@ def stage_a():
         sock.close()
         return None
 
-
 def stage_b(num, lenA, udp_port, secretA, sock):
-    stage_b_socket = sock
-    stage_b_socket.settimeout(3)
-    # need to change addr?? 
+    sock.settimeout(2)
 
-    #udp uses packets
-    packets = []
-    # sent = [False] * num
-    print("endter b")
-    struct_layout = f"!iihhi{lenA+4}x"
-    for i in range(num):
-        payload = struct.pack(struct_layout, lenA+4, secretA, 1, CONFIG_STUID, i)
-        packets.append(payload)
+    for packet_id in range(num):
+        # Build payload
+        payload = struct.pack("!i", packet_id) + b"\x00" * lenA
 
-    num_sent = 0
-    
-    while num_sent < num:
-        print("send + ", num_sent)
-        stage_b_socket.sendto(packets[num_sent], (SERVER_ADDR, udp_port))
-        print("sendndndnndnnd", packets[num_sent])
-        try:
-            data, client_addr = stage_b_socket.recvfrom(BUF_SIZE)
-            acked_packet_id = struct.unpack("!i", data[12:])
-            print("acked_packet_id:" + str(acked_packet_id[0]) + "num_sent" + str(num_sent))
-            num_sent += 1
-        except socket.timeout:
-            print("fail")
-            return 1,1
-
-    print("success!")
-    
-    return 0, 0
-
+        # Build header (payload_len MUST be 4 + lenA)
+        header = struct.pack("!iihh", 4 + lenA, secretA, 1,CONFIG_STUID)
+        packet = header + payload
+        while True:
+            sock.sendto(packet, (HOST, udp_port))
+            try:
+                data, _ = sock.recvfrom(BUF_SIZE)
+                ack_len, ack_secret, ack_step, ack_sid = struct.unpack("!iihh", data[:12])
+                ack_id = struct.unpack("!i", data[12:16])[0]
+                if (ack_secret == secretA and ack_step == 2 and ack_id == packet_id):
+                    print(f"ACK received for packet {packet_id}")
+                    break
+            except socket.timeout:
+                continue
+    print("Stage B complete")
     """
     data, client_addr = stage_b_socket.recvfrom(BUF_SIZE)	
     tcp_port, secretB = struct.unpack("!ii", data[12:20])
@@ -93,8 +81,8 @@ def stage_b(num, lenA, udp_port, secretA, sock):
 
 if __name__ == "__main__":
     num, lenA, udp_port, secretA, sock = stage_a()
-    print("oh no")
-    tcp_port, secretB = stage_b(num, lenA, udp_port, secretA, sock)
+    stage_b(num, lenA, udp_port, secretA, sock)
+
 
 
 # tcp 
