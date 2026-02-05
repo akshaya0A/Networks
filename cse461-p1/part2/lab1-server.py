@@ -3,7 +3,7 @@ import socketserver
 import threading
 import random
 import struct
-import time
+import string
 import sys
 
 STEP = 2
@@ -35,11 +35,17 @@ class MyServer(socketserver.BaseRequestHandler):
 
 
     def handle(self):
+        # determine the client and their current stage
         data= self.request[0]
         udp_socket = self.request[1]
         client_addr = self.client_address
         print("{} wrote:".format(self.client_address[0]))
         print(data)
+
+        self.handle_stage_a(data, udp_socket, client_addr)
+
+
+    def handle_stage_a(self, data, udp_socket, client_addr):
         # parse the mesage and payload
         payload = data[HEADER_SIZE:]
         print(payload)
@@ -49,7 +55,6 @@ class MyServer(socketserver.BaseRequestHandler):
         print(psecret)
         print(step)
         print(student_id)
-        STUID = student_id
         if payload != b"hello world\x00" or step != 1 or psecret != 0 or payload_len != len(payload):
             print("invalid")
             return
@@ -66,22 +71,23 @@ class MyServer(socketserver.BaseRequestHandler):
         # print(payload_a2)
         # print(header_a2)
         udp_socket.sendto(header_a2 + payload_a2, client_addr)
-        
-        # stage B
-        print("to post", udp_port)
+        threading.Thread(target=self.handle_stage_b, args=(udp_port, len_val, secretA, num, student_id)).start()
+
+
+    def handle_stage_b(self, udp_port, len_val, secretA, num, stuid):
+        # create new udp connection for stage b
+        print("stage b on port: ", udp_port)
         stageb_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         stageb_socket.bind(("", udp_port))
         stageb_socket.settimeout(5)
-        struct_layout = f"!iihhi{len_val+4}x"
+
         len_align = len_val
         while (len_align % 4 != 0):
             len_align+=1
-        # id_num = struct.unpack("!i", payload[:4])[0]
         packet_id_want = 0
-        packet_id_want = 0
-
         max_timeouts = 10
         timeouts = 0
+
         while packet_id_want < num and timeouts < max_timeouts:
             try:
                 data, client_addr = stageb_socket.recvfrom(BUF_SIZE)
@@ -89,7 +95,7 @@ class MyServer(socketserver.BaseRequestHandler):
                 payload = data[HEADER_SIZE:]
                 payload_len, psecret, step, student_id = struct.unpack("!iihh", header)
                 # validate header
-                if psecret != secretA or step != 1 or student_id != STUID:
+                if psecret != secretA or step != 1 or student_id != stuid:
                     continue
                 # Payload length needs to be 4 + len_val
                 if payload_len != 4 + len_val:
@@ -99,7 +105,7 @@ class MyServer(socketserver.BaseRequestHandler):
                 if packet_id != packet_id_want:
                     continue
                 # zero padding
-                if payload[4:] != b"\x00" * len_val:
+                if payload[4:4+len_val] != b"\x00" * len_val:
                     continue
                 # ack
                 ack_payload = struct.pack("!i", packet_id)
@@ -109,138 +115,61 @@ class MyServer(socketserver.BaseRequestHandler):
             except socket.timeout:
                 timeouts += 1
                 continue
-        stageb_socket.close()
-        return
-
-        """        
-        # all packets sent 
+        
+        # all packets sent so send tcp port info and start part c
         tcp_port = self.valid_port()
         secretB = random.randint(1, 1000)
         new_payload = struct.pack("!ii", tcp_port, secretB)
         final_header = struct.pack("!iihh", len(new_payload), secretA, 2, student_id)
-        # send back the final new info 
-        new_packet = final_header + new_payload,
+        new_packet = final_header + new_payload
         stageb_socket.sendto(new_packet, client_addr)
-        return num, len_val, udp_port, secretA, tcp_port, secretB
-        #udp_packet = struct.pack("iihh", len(msg), 0, STEP, CONFIG_STUID)
-        #msg = data.decode('utf-8')
-        #socket.sendto(udp_packet, self.client_address)
-        """
-        print("success!")
-        #sys.exit(0)
+        stageb_socket.close()
+        threading.Thread(target=self.handle_stage_c, args=(tcp_port, secretB, student_id), daemon=True).start()
 
+
+    def handle_stage_c(self, tcp_port, secretB, student_id):
+        print("Stage C")
+        # create new tcp connection for stage b
+        print("stage c on port: ", tcp_port)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        try:
+            sock.settimeout(3)
+            sock.bind(("", tcp_port))
+        except socket.timeout:
+            print("Client failed to connect within 3 seconds")
+            return
+        
+        sock.listen(1)
+        connection, client_addr = sock.accept()
+
+        # random reponses
+        num2 = random.randint(1, 10)
+        len2 = random.randint(1, 33)
+        secretC = random.randint(0, 100)
+        char = random.choice(string.ascii_letters).encode('ascii')
+        char_padded = char + b'\x00' * 3
+
+        payload = struct.pack("!iii4s", num2, len2, secretC, char_padded)
+        header = struct.pack("!iihh", len(payload), secretB, 2, student_id)
+        try:
+            connection.sendall(header + payload)
+        except (BrokenPipeError, ConnectionResetError):
+            print("Client disconnected")
+        except OSError as e:
+            print("Socket error", e)
+
+        self.handle_stage_d(connection, sock)
+
+
+    def handle_stage_d(self, connection, sock):
+        print("Stage D")
+        connection.close()
+        sock.close()
+        return
 		
 
 if __name__ == "__main__":
-    with socketserver.UDPServer((HOST, PORT), MyServer) as server:
+    with socketserver.ThreadingUDPServer((HOST, PORT), MyServer) as server:
         print(f"UDP Server listening on {HOST}:{PORT}")
         server.serve_forever()
-
-
-            
-"""
-
-    # Create the server
-    with socketserver.TCPServer((HOST, PORT), MyServer) as server:
-        # Activate the server; this will keep running until you
-        # interrupt the program with Ctrl-C
-        server.serve_forever()
-
-
-
-    def handle_tcp(self):
-        # self.request is the TCP socket connected to the client
-        self.data = self.request.recv(1024).strip()
-        print("{} wrote:".format(self.client_address[0]))
-        print(self.data)
-        # just send back the same data
-        self.request.sendall(self.data)
-
-
-
-class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
-    def handle(self):
-        data = str(self.request.recv(1024), 'ascii')
-        cur_thread = threading.current_thread()
-        response = bytes("{}: {}".format(cur_thread.name, data), 'ascii')
-        self.request.sendall(response)
-
-class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
-    pass
-
-def client(ip, port, message):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.connect((ip, port))
-        sock.sendall(bytes(message, 'ascii'))
-        response = str(sock.recv(1024), 'ascii')
-        print("Received: {}".format(response))
-
-if __name__ == "__main__":
-    # Port 0 means to select an arbitrary unused port
-    HOST, PORT = "localhost", 0
-
-    server = ThreadedTCPServer((HOST, PORT), ThreadedTCPRequestHandler)
-    with server:
-        ip, port = server.server_address
-
-        # Start a thread with the server -- that thread will then start one
-        # more thread for each request
-        server_thread = threading.Thread(target=server.serve_forever)
-        # Exit the server thread when the main thread terminates
-        server_thread.daemon = True
-        server_thread.start()
-        print("Server loop running in thread:", server_thread.name)
-
-        client(ip, port, "Hello World 1")
-        client(ip, port, "Hello World 2")
-        client(ip, port, "Hello World 3")
-
-        server.shutdown()
-
-
-    def parsed(self, data):
-        payload = data[12:]
-        header = data[0:12]
-        payload_len, psecret, step, student_id  = struct.unpack("iihh", header)
-        return msg, payload_len, psecret, step, student_id
-
-    def helper(self):
-        dropped = False
-        while packet_id_want < num:
-            data, client_addr = stageb_socket.recvfrom(udp_port)
-            header = data[:12]
-            payload = data[12:]
-            payload_len, psecret, step, student_id  = struct.unpack("iihh", header)
-            if psecret != secretA or step != 1:
-                return 
-            if payload_len != 4 + len_val:
-                return
-            # get the packed id
-            if packed_id != packet_id_want:
-                continue 
-
-
-
-
-while True:
-	print ("Waiting for client...")
-	data,addr = s_udp.recvfrom(port)	        #receive data from client
-	print ("Received Messages:",data," from",addr)
-	if (#TODOO):
-		break
-
-while True:
-	data = conn.recv(1024)	    # Receive client data
-	if not data: break	        # exit from loop if no data
-	conn.sendall(data)	        # Send the received data back to client
-conn.close()
-
-s_tcp = socket.socket()		# TCP socket object
-s_tcp.bind(host, port)
-
-s_tcp.bind((host,port))
-s_tcp.listen(5)
-print ("Waiting for client...")
-conn,addr = s_tcp.accept()	        # Accept connection when client connects
-print ("Connected by ", addr)
-###"""
