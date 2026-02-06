@@ -159,22 +159,23 @@ class MyServer(socketserver.BaseRequestHandler):
         except OSError as e:
             print("Socket error", e)
 
-        self.handle_stage_d(connection, secretC, len2, sock)
+        self.handle_stage_d(connection, secretC, len2, sock, student_id)
 
 
-    def handle_stage_d(self, connection, secretC, len2, sock):
+    def handle_stage_d(self, connection, secretC, len2, sock, stuid):
         print("Stage D")
         try:
-            data = sock.recv(1024)
+            data = connection.recv(1024)
             header = data[:HEADER_SIZE]
             payload = data[HEADER_SIZE:]
             payload_len, psecret, step, student_id = struct.unpack("!iihh", header)
             # validate header
             if psecret != secretC or step != 1 or student_id != stuid:
-                sock.close()
+                connection.close()
             # Payload length needs to be 4 + len_val
             if payload_len != len2:
-                sock.close()
+                connection.close()
+
             return
         except socket.timeout:
             return
