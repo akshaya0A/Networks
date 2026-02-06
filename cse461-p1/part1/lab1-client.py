@@ -98,10 +98,13 @@ def stage_b(num, lenA, udp_port, secretA, sock):
                 print("ack timeout")
                 continue
     print("Stage B complete")
+    sock.settimeout(3)
     while True:
         try:
             data, _ = sock.recvfrom(BUF_SIZE)
+            print("DATA ",data)
             tcp_port, secretB = struct.unpack("!ii", data[12:20])
+            print(tcp_port, secretB)
             sock.close()
             return tcp_port, secretB
         except socket.timeout:
@@ -110,6 +113,7 @@ def stage_b(num, lenA, udp_port, secretA, sock):
 
 if __name__ == "__main__":
     num, lenA, udp_port, secretA, sock = stage_a()
-    stage_b(num, lenA, udp_port, secretA, sock)
+    tcp_port, secretB = stage_b(num, lenA, udp_port, secretA, sock)
+    print("B:", secretB)
 
 
