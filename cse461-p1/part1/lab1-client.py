@@ -109,11 +109,27 @@ def stage_b(num, lenA, udp_port, secretA, sock):
             return tcp_port, secretB
         except socket.timeout:
             print("timout heheheh")
+
+def stage_c(tcp_port, secretB):
+    print(" Stage C TCP server...")
+    # make tcp socket
+    tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp_socket.settimeout(5)
+    tcp_socket.connect((HOST, tcp_port))
+    # get the server message
+    data = tcp_socket.recv(BUF_SIZE)
+    payload_len, psecret, step, student_id = struct.unpack("!iihh", data[:12])
+    num2, len2, secretC = struct.unpack("!iii", data[12:24])
+    print("Stage C:")
+    print("num2:", num2)
+    print("len2:", len2)
+    print("secretC:", secretC)
+    tcp_socket.close()
         
 
 if __name__ == "__main__":
     num, lenA, udp_port, secretA, sock = stage_a()
     tcp_port, secretB = stage_b(num, lenA, udp_port, secretA, sock)
     print("B:", secretB)
-
+    stage_c(tcp_port, secretB)
 
